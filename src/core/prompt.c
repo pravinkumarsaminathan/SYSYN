@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "../include/shell.h"
+#include "../../include/core/shell.h"
 
 void print_prompt1(void)
 {
