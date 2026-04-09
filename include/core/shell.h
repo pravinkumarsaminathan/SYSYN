@@ -27,4 +27,14 @@ extern struct builtin_s builtins[];
 // and their count
 extern int builtins_count;
 
+struct word_s
+{
+    char *data;
+    int len;
+    struct word_s *next;
+};
+
+struct word_s *make_word(char *str);
+void free_all_words(struct word_s *first);
+
 #endif
