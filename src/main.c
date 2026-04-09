@@ -11,6 +11,8 @@ int main(int argc, char **argv)
 {
     char *cmd;
 
+    initsh();
+
     do
     {
         print_prompt1();

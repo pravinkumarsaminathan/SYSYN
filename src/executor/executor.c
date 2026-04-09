@@ -153,6 +153,17 @@ int do_simple_command(struct node_s *node)
     }
     argv[argc] = NULL;
 
+    int i = 0;
+    for( ; i < builtins_count; i++)
+    {
+        if(strcmp(argv[0], builtins[i].name) == 0)
+        {
+            builtins[i].func(argc, argv);
+            free_argv(argc, argv);
+            return 1;
+        }
+    }
+
     pid_t child_pid = 0;
     if((child_pid = fork()) == 0)
     {
