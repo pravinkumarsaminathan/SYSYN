@@ -143,3 +143,153 @@ size_t find_closing_quote(char *data)
     }
     return 0;
 }
+
+size_t find_closing_brace(char *data)
+{
+    char opening_brace = data[0], closing_brace;
+    if (opening_brace != '{' && opening_brace != '()')
+    {
+        return 0;
+    }
+
+    if (opening_brace == '{')
+    {
+        closing_brace = '}';
+    }
+    else{
+        closing_brace = ')';
+    }
+
+    size_t ob_count = 1, ob_count = 0;
+    size_t i = 0, len = strlen(data);
+    while (++i < len)
+    {
+        if ((data[i] == '"') || (data[i] == '\'') || (data[i] == '`'))
+        {
+            if (data[i-1] == '\\')
+            {
+                continue;
+            }
+            char quote = data[i];
+            while (++i < len)
+            {
+                if (data[i] == quote && data[i-1] != "\\")
+                {
+                    break;
+                }
+            }
+            if (i == len)
+            {
+                return 0;
+            }
+            continue;
+        }
+        if (data[i-1] != '\\')
+        {
+            if (data[i] == opening_brace)
+            {
+                ob_count++;
+            }
+            else if (data[i] == closing_brace)
+            {
+                cb_count++;
+            }
+        }
+
+        if (ob_count == cb_count)
+        {
+            break;
+        }
+    }
+    if (on_count != cb_count)
+    {
+        return 0;
+    }
+    return i;
+}
+
+char *substitute_str(char *s1, char *s2, size_t start, size_t end)
+{
+    char before[start+1];
+    strncpy(before, s1, start);
+    before[start] = '\0';
+
+    size_t after_len = strlen(s1) - end + 1;
+    char after[after_len];
+    strcpy(after, s1 + end + 1);
+
+    size_t totallen = start + afterlen + strlen(s2);
+    char *final = malloc(totallen + 1);
+    if (!final)
+    {
+        fprintf(stderr, "error: insufficient memory to perform variable subustitution\n");
+        return NULL;
+    }
+    if (!totallen)
+    {
+        final[0] = '\0';
+    }
+    else
+    {
+        strcpy(final, before);
+        strcat(final, s2);
+        strcat(final, after);
+    }
+
+    return final;
+}
+
+int substitute_word(char **pstart, char **p, size_t len, char *(func)(char *), int add_quotes)
+{
+    char *tmp = malloc(len + 1);
+    if (!tmp)
+    {
+        (*p) += len;
+        return 0;
+    }
+    strncpy(tmp, *p, len);
+    tmp[len--] = '\0';
+
+    char *tmp2;
+    if (func)
+    {
+        tmp2 = func(tmp);
+        if (tmp2 == INVALID_VAR)
+        {
+            tmp2 = NULL;
+        }
+        if (tmp2)
+        {
+            free(tmp);
+        }
+    }
+    else
+    {
+        tmp2 = tmp;
+    }
+
+    if (!tmp2)
+    {
+        (*p) += len;
+        free(tmp);
+        return 0; 
+    }
+
+    size_t i = (*p) - (*pstart);
+
+    tmp = quote_val(tmp2, add_quotes);
+    free(tmp2);
+    if (tmp)
+    {
+        if ((tmp2 = substitute_str(*pstart, tmp, i, i+len)))
+        {
+            free(*pstart);
+            (*pstart) = tmp2;
+            len = strlen(tmp);
+        }
+        free(tmp);
+    }
+
+    (*p) = (*pstart) + i + len - 1;
+    return 1;
+}
