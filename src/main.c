@@ -134,3 +134,6 @@ int parse_and_execute(struct source_s *src)
 
 //compile in previous directory using this command:
    // $ gcc -Iinclude src/**/*.c -o shell
+   // or
+   // $ gcc -Iinclude $(find src -name "*.c") -o shell
+// in SYSYN folder

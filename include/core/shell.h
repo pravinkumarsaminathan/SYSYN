@@ -1,6 +1,9 @@
 #ifndef SHELL_H
 #define SHELL_H
 
+#include <stddef.h>
+#include <glob.h>
+
 void print_prompt1(void);
 void print_prompt2(void);
 
@@ -37,4 +40,15 @@ struct word_s
 struct word_s *make_word(char *str);
 void free_all_words(struct word_s *first);
 
+size_t  find_closing_quote(char *data);
+size_t  find_closing_brace(char *data);
+void    delete_char_at(char *str, size_t index);
+char   *substitute_str(char *s1, char *s2, size_t start, size_t end);
+char   *wordlist_to_str(struct word_s *word);
+
+/* some string manipulation functions */
+char   *strchr_any(char *string, char *chars);
+char   *quote_val(char *val, int add_quotes);
+int     check_buffer_bounds(int *count, int *len, char ***buf);
+void    free_buffer(int len, char **buf);
 #endif
