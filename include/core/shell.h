@@ -46,9 +46,17 @@ void    delete_char_at(char *str, size_t index);
 char   *substitute_str(char *s1, char *s2, size_t start, size_t end);
 char   *wordlist_to_str(struct word_s *word);
 
+char   *tilde_expand(char *s);
+char   *command_substitute(char *__cmd);
+char   *var_expand(char *__var_name);
+
 /* some string manipulation functions */
 char   *strchr_any(char *string, char *chars);
 char   *quote_val(char *val, int add_quotes);
 int     check_buffer_bounds(int *count, int *len, char ***buf);
 void    free_buffer(int len, char **buf);
+
+int     match_prefix(char *pattern, char *str, int longest);
+int     match_suffix(char *pattern, char *str, int longest);
+
 #endif
