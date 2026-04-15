@@ -374,6 +374,315 @@ int substitute_word(char **pstart, char **p, size_t len,
     (*p) = (*pstart)+i+len-1;
     return 1;
 }
+                 
+
+/*
+ * perform word expansion on a single word, pointed to by orig_word.
+ *
+ * returns the head of the linked list of the expanded fields and stores the last field
+ * in the tail pointer.
+ */
+
+struct word_s *word_expand(char *orig_word)
+{
+    if(!orig_word)
+    {
+        return NULL;
+    }
+    
+    if(!*orig_word)
+    {
+        return make_word(orig_word);
+    }
+
+    char *pstart = malloc(strlen(orig_word)+1);
+    if(!pstart)
+    {
+        return NULL;
+    }
+    strcpy(pstart, orig_word);
+
+    char *p = pstart, *p2;
+    char *tmp;
+    char   c;
+    size_t i = 0;
+    size_t len;
+    int in_double_quotes = 0;
+    int in_var_assign = 0;
+    int var_assign_eq = 0;
+    int expanded = 0;
+    char *(*func)(char *);
+
+    do
+    {
+        switch(*p)
+        {
+            case '~':
+                /* don't perform tilde expansion inside double quotes */
+                if(in_double_quotes)
+                {
+                    break;
+                }
+                /* expand a tilde prefix only if:
+                 * - it is the first unquoted char in the string.
+                 * - it is part of a variable assignment, and is preceded by the first
+                 *   equals sign or a colon.
+                 */
+                if(p == pstart || (in_var_assign && (p[-1] == ':' || (p[-1] == '=' && var_assign_eq == 1))))
+                {
+                    /* find the end of the tilde prefix */
+                    int tilde_quoted = 0;
+                    int endme = 0;
+                    p2 = p+1;
+
+                    while(*p2)
+                    {
+                        switch(*p2)
+                        {
+                            case '\\':
+                                tilde_quoted = 1;
+                                p2++;
+                                break;
+                                
+                            case '"':
+                            case '\'':
+                                i = find_closing_quote(p2);
+                                if(i)
+                                {
+                                    tilde_quoted = 1;
+                                    p2 += i;
+                                }
+                                break;
+                                
+                            case '/':
+                                endme = 1;
+                                break;
+                                
+                            case ':':
+                                if(in_var_assign)
+                                {
+                                    endme = 1;
+                                }
+                                break;
+                        }
+                        if(endme)
+                        {
+                            break;
+                        }
+                        p2++;
+                    }
+                    
+		    /* if any part of the prefix is quoted, no expansion is done */
+                    if(tilde_quoted)
+                    {
+                        /* just skip the tilde prefix */
+                        p = p2;
+                        break;
+                    }
+                    
+		    /* otherwise, extract the prefix */
+                    len = p2-p;
+                    substitute_word(&pstart, &p, len, tilde_expand, !in_double_quotes);
+                    expanded = 1;
+                }
+                break;
+                
+            case '"':
+                /* toggle quote mode */
+                in_double_quotes = !in_double_quotes;
+                break;
+                
+            case '=':
+                /* skip it if inside double quotes */
+                if(in_double_quotes)
+                {
+                    break;
+                }
+                /* check the previous string is a valid var name */
+                len = p-pstart;
+                tmp = malloc(len+1);
+                
+		if(!tmp)
+                {
+                    fprintf(stderr, "error: insufficient memory for internal buffers\n");
+                    break;
+                }
+                
+		strncpy(tmp, pstart, len);
+                tmp[len] = '\0';
+                
+		/*
+                 * if the string before '=' is a valid var name, we have a variable
+                 * assignment.. we set in_var_assign to indicate that, and we set
+                 * var_assign_eq which indicates this is the first equals sign (we use
+                 * this when performing tilde expansion -- see code above).
+                 */
+                if(is_name(tmp))
+                {
+                    in_var_assign = 1;
+                    var_assign_eq++;
+                }
+                free(tmp);
+                break;
+                
+            case '\\':
+                /* skip backslash (we'll remove it later on) */
+                p++;
+                break;
+                
+            case '\'':
+                /* if inside double quotes, treat the single quote as a normal char */
+                if(in_double_quotes)
+                {
+                    break;
+                }
+                
+		/* skip everything, up to the closing single quote */
+                p += find_closing_quote(p);
+                break;
+                
+            case '`':
+                /* find the closing back quote */
+                if((len = find_closing_quote(p)) == 0)
+                {
+                    /* not found. bail out */
+                    break;
+                }
+                
+		/* otherwise, extract the command and substitute its output */
+                substitute_word(&pstart, &p, len+1, command_substitute, 0);
+                expanded = 1;
+                break;
+                
+            /*
+             * the $ sign might introduce:
+             * - parameter expansions: ${var} or $var
+             * - command substitutions: $()
+             * - arithmetic expansions: $(())
+             */
+            case '$':
+                c = p[1];
+                switch(c)
+                {
+                    case '{':
+                        /* find the closing quote */
+                        if((len = find_closing_brace(p+1)) == 0)
+                        {
+                            /* not found. bail out */
+                            break;
+                        }
+                        
+			/*
+                         *  calling var_expand() might return an INVALID_VAR result which
+                         *  makes the following call fail.
+                         */
+                        if(!substitute_word(&pstart, &p, len+2, var_expand, 0))
+                        {
+                            free(pstart);
+                            return NULL;
+                        }
+                        
+			expanded = 1;
+                        break;
+                        
+                    /*
+                     * arithmetic expansion $(()) or command substitution $().
+                     */
+                    case '(':
+                        /* check if we have one or two opening braces */
+                        i = 0;
+                        
+			if(p[2] == '(')
+                        {
+                            i++;
+                        }
+                        
+			/* find the closing quote */
+                        if((len = find_closing_brace(p+1)) == 0)
+                        {
+                            /* not found. bail out */
+                            break;
+                        }
+                        
+			/*
+                         * otherwise, extract the expression and substitute its value.
+                         * if we have one brace (i == 0), we'll perform command substitution.
+                         * otherwise, arithmetic expansion.
+                         */
+                        func = i ? arithm_expand : command_substitute;
+                        substitute_word(&pstart, &p, len+2, func, 0);
+                        expanded = 1;
+                        break;
+                                                
+                    default:
+                        /* var names must start with an alphabetic char or _ */
+                        if(!isalpha(p[1]) && p[1] != '_')
+                        {
+                            break;
+                        }
+                        
+			p2 = p+1;
+                        
+			/* get the end of the var name */
+                        while(*p2)
+                        {
+                            if(!isalnum(*p2) && *p2 != '_')
+                            {
+                                break;
+                            }
+                            p2++;
+                        }
+                        
+			/* empty name */
+                        if(p2 == p+1)
+                        {
+                            break;
+                        }
+                        
+			/* perform variable expansion */
+                        substitute_word(&pstart, &p, p2-p, var_expand, 0);
+                        expanded = 1;
+                        break;
+                }
+                break;
+
+            default:
+                if(isspace(*p) && !in_double_quotes)
+                {
+                    expanded = 1;
+                }
+                break;
+        }
+    } while(*(++p));
+    
+    /* if we performed word expansion, do field splitting */
+    struct word_s *words = NULL;
+    if(expanded)
+    {
+        words = field_split(pstart);
+    }
+    
+    /* no expansion done, or no field splitting done */
+    if(!words)
+    {
+        words = make_word(pstart);
+        /* error making word struct */
+        if(!words)
+        {
+            fprintf(stderr, "error: insufficient memory\n");
+            free(pstart);
+            return NULL;
+        }
+    }
+    free(pstart);
+
+    /* perform pathname expansion and quote removal */
+    words = pathnames_expand(words);
+    remove_quotes(words);
+
+    /* return the expanded list */
+    return words;
+}
 
 
 /*
@@ -926,4 +1235,531 @@ fin:
     }
     
     return buf;
+}
+
+
+/*
+ * check if char c is a valid $IFS character.
+ *
+ * returns 1 if char c is an $IFS character, 0 otherwise.
+ */
+static inline int is_IFS_char(char c, char *IFS)
+{
+    if(!*IFS)
+    {
+        return 0;
+    }
+
+    do
+    {
+        if(c == *IFS)
+        {
+            return 1;
+        }
+    } while(*++IFS);
+    
+    return 0;
+}
+
+
+/*
+ * skip all whitespace characters that are part of $IFS.
+ */
+void skip_IFS_whitespace(char **str, char *IFS)
+{
+    char *IFS2 = IFS;
+    char *s2   = *str;
+    
+    do
+    {
+        if(*s2 == *IFS2)
+        {
+            s2++;
+            IFS2 = IFS-1;
+        }
+    } while(*++IFS2);
+    
+    *str = s2;
+}
+
+
+/*
+ * skip $IFS delimiters, which can be whitespace characters as well as other chars.
+ */
+void skip_IFS_delim(char *str, char *IFS_space, char *IFS_delim, size_t *_i, size_t len)
+{
+    size_t i = *_i;
+    
+    while((i < len) && is_IFS_char(str[i], IFS_space))
+    {
+        i++;
+    }
+    
+    while((i < len) && is_IFS_char(str[i], IFS_delim))
+    {
+        i++;
+    }
+    
+    while((i < len) && is_IFS_char(str[i], IFS_space))
+    {
+        i++;
+    }
+    
+    *_i = i;
+}
+
+
+/*
+ * convert the words resulting from a word expansion into separate fields.
+ *
+ * returns a pointer to the first field, NULL if no field splitting was done.
+ */
+struct word_s *field_split(char *str)
+{
+    struct symtab_entry_s *entry = get_symtab_entry("IFS");
+    char *IFS = entry ? entry->val : NULL;
+    char *p;
+    
+    /* POSIX says no IFS means: "space/tab/NL" */
+    if(!IFS)
+    {
+        IFS = " \t\n";
+    }
+    
+    /* POSIX says empty IFS means no field splitting */
+    if(IFS[0] == '\0')
+    {
+        return NULL;
+    }
+    
+    /* get the IFS spaces and delimiters separately */
+    char IFS_space[64];
+    char IFS_delim[64];
+    
+    if(strcmp(IFS, " \t\n") == 0)   /* "standard" IFS */
+    {
+        IFS_space[0] = ' ' ;
+        IFS_space[1] = '\t';
+        IFS_space[2] = '\n';
+        IFS_space[3] = '\0';
+        IFS_delim[0] = '\0';
+    }
+    else                            /* "custom" IFS */
+    {
+        p  = IFS;
+        char *sp = IFS_space;
+        char *dp = IFS_delim;
+    
+    	do
+        {
+            if(isspace(*p))
+            {
+                *sp++ = *p++;
+            }
+            else
+            {
+                *dp++ = *p++;
+            }
+        } while(*p);
+    
+    	*sp = '\0';
+        *dp = '\0';
+    }
+
+    size_t len    = strlen(str);
+    size_t i      = 0, j = 0, k;
+    int    fields = 1;
+    char   quote  = 0;
+    
+    /* skip any leading whitespaces in the string */
+    skip_IFS_whitespace(&str, IFS_space);
+    
+    /* estimate the needed number of fields */
+    do
+    {
+        switch(str[i])
+        {
+            /* skip escaped chars */
+            case '\\':
+                /* backslash has no effect inside single quotes */
+                if(quote != '\'')
+                {
+                    i++;
+                }
+                break;
+
+            /* don't count whitespaces inside quotes */
+            case '\'':
+            case '"':
+            case '`':
+                if(quote == str[i])
+                {
+                    quote = 0;
+                }
+                else
+                {
+                    quote = str[i];
+                }
+                break;
+
+            default:
+                /* skip normal characters if we're inside quotes */
+                if(quote)
+                {
+                    break;
+                }
+    
+    		if(is_IFS_char(str[i], IFS_space) || is_IFS_char(str[i], IFS_delim))
+                {
+                    skip_IFS_delim(str, IFS_space, IFS_delim, &i, len);
+                    if(i < len)
+                    {
+                        fields++;
+                    }
+                }
+                break;
+        }
+    } while(++i < len);
+
+    /* we have only one field. no field splitting needed */
+    if(fields == 1)
+    {
+        return NULL;
+    }
+
+    struct word_s *first_field = NULL;
+    struct word_s *cur         = NULL;
+    
+    /* create the fields */
+    i     = 0;
+    j     = 0;
+    quote = 0;
+    
+    do
+    {
+        switch(str[i])
+        {
+            /* skip escaped chars */
+            case '\\':
+                /* backslash has no effect inside single quotes */
+                if(quote != '\'')
+                {
+                    i++;
+                }
+                break;
+
+            /* skip single quoted substrings */
+            case '\'':
+                p = str+i+1;
+                while(*p && *p != '\'')
+                {
+                    p++;
+                }
+                i = p-str;
+                break;
+
+            /* remember if we're inside/outside double and back quotes */
+            case '"':
+            case '`':
+                if(quote == str[i])
+                {
+                    quote = 0;
+                }
+                else
+                {
+                    quote = str[i];
+                }
+                break;
+
+            default:
+                /* skip normal characters if we're inside quotes */
+                if(quote)
+                {
+                    break;
+                }
+    
+    		/*
+                 * delimit the field if we have an IFS space or delimiter char, or if
+                 * we reached the end of the input string.
+                 */
+                if(is_IFS_char(str[i], IFS_space) ||
+                   is_IFS_char(str[i], IFS_delim) || (i == len))
+                {
+                    /* copy the field text */
+                    char *tmp = malloc(i-j+1);
+    
+    		    if(!tmp)
+                    {
+                        fprintf(stderr, "error: insufficient memory for field splitting\n");
+                        return first_field;
+                    }
+    
+    		    strncpy(tmp, str+j, i-j);
+                    tmp[i-j] = '\0';
+    
+    		    /* create a new struct for the field */
+                    struct word_s *fld = malloc(sizeof(struct word_s));
+    
+    		    if(!fld)
+                    {
+                        free(tmp);
+                        return first_field;
+                    }
+    
+    		    fld->data = tmp;
+                    fld->len  = i-j;
+                    fld->next = NULL;
+    
+    		    if(!first_field)
+                    {
+                        first_field = fld;
+                    }
+    
+    		    if(!cur)
+                    {
+                        cur  = fld;
+                    }
+                    else
+                    {
+                        cur->next = fld;
+                        cur       = fld;
+                    }
+    
+    		    k = i;
+    
+    		    /* skip trailing IFS spaces/delimiters */
+                    skip_IFS_delim(str, IFS_space, IFS_delim, &i, len);
+                    j = i;
+    
+    		    if(i != k && i < len)
+                    {
+                        i--;     /* go back one step so the loop will work correctly */
+                    }
+                }
+                break;
+        }
+    } while(++i <= len);
+    
+    return first_field;
+}
+
+
+/*
+ * perform pathname expansion.
+ */
+struct word_s *pathnames_expand(struct word_s *words)
+{
+    struct word_s *w = words;
+    struct word_s *pw = NULL;
+
+    while(w)
+    {
+        char *p = w->data;
+    
+    	/* check if we should perform filename globbing */
+        if(!has_glob_chars(p, strlen(p)))
+        {
+            pw = w;
+            w = w->next;
+            continue;
+        }
+    
+    	glob_t glob;
+        char **matches = get_filename_matches(p, &glob);
+    
+    	/* no matches found */
+        if(!matches || !matches[0])
+        {
+            globfree(&glob);
+        }
+        else
+        {
+            /* save the matches */
+            struct word_s *head = NULL, *tail = NULL;
+    
+    	    for(size_t j = 0; j < glob.gl_pathc; j++)
+            {
+                /* skip '..' and '.' */
+                if(matches[j][0] == '.' &&
+                  (matches[j][1] == '.' || matches[j][1] == '\0' || matches[j][1] == '/'))
+                {
+                    continue;
+                }
+    
+    		/* add the path to the list */
+                if(!head)
+                {
+                    /* first item in the list */
+                    head = make_word(matches[j]);
+                    tail = head;
+                }
+                else
+                {
+                    /* add to the list's tail */
+                    tail->next = make_word(matches[j]);
+    
+    		    if(tail->next)
+                    {
+                        tail = tail->next;
+                    }
+                }
+            }
+    
+    	    /* add the new list to the existing list */
+            if(w == words)
+            {
+                words = head;
+            }
+            else if(pw)
+            {
+                pw->next = head;
+            }
+    
+    	    pw = tail;
+            tail->next = w->next;
+    
+    	    /* free the word we've just globbed */
+            w->next = NULL;
+            free_all_words(w);
+            w = tail;
+    
+    	    /* free the matches list */
+            globfree(&glob);
+            /* finished globbing this word */
+        }
+    
+    	pw = w;
+        w = w->next;
+    }
+    
+    return words;
+}
+
+
+/*
+ * perform quote removal.
+ */
+void remove_quotes(struct word_s *wordlist)
+{
+    if(!wordlist)
+    {
+        return;
+    }
+
+    int in_double_quotes = 0;
+    struct word_s *word = wordlist;
+    char *p;
+    
+    while(word)
+    {
+        p = word->data;
+        while(*p)
+        {
+            switch(*p)
+            {
+                case '"':
+                    /* toggle quote mode */
+                    in_double_quotes = !in_double_quotes;
+                    delete_char_at(p, 0);
+                    break;
+
+                case '\'':
+                    /* don't delete if inside double quotes */
+                    if(in_double_quotes)
+                    {
+                        p++;
+                        break;
+                    }
+
+                    delete_char_at(p, 0);
+                
+		    /* find the closing quote */
+                    while(*p && *p != '\'')
+                    {
+                        p++;
+                    }
+                
+		    /* and remove it */
+                    if(*p == '\'')
+                    {
+                        delete_char_at(p, 0);
+                    }
+                    break;
+
+                case '`':
+                    delete_char_at(p, 0);
+                    break;
+
+                case '\v':
+                case '\f':
+                case '\t':
+                case '\r':
+                case '\n':
+                    p++;
+                    break;
+
+                case '\\':
+                    if(in_double_quotes)
+                    {
+                        switch(p[1])
+                        {
+                            /*
+                             * in double quotes, backslash preserves its special quoting
+                             * meaning only when followed by one of the following chars.
+                             */
+                            case  '$':
+                            case  '`':
+                            case  '"':
+                            case '\\':
+                            case '\n':
+                                delete_char_at(p, 0);
+                                p++;
+                                break;
+
+                            default:
+                                p++;
+                                break;
+                        }
+                    }
+                    else
+                    {
+                        /* parse single-character backslash quoting. */
+                        delete_char_at(p, 0);
+                        p++;
+                    }
+                    break;
+
+                default:
+                    p++;
+                    break;
+            }
+        }
+
+        /* update the word's length */
+        word->len = strlen(word->data);
+
+
+        /* move on to the next word */
+        word = word->next;
+    }
+}
+
+
+/*
+ * A simple shortcut to perform word-expansions on a string,
+ * returning the result as a string.
+ */
+char *word_expand_to_str(char *word)
+{
+    struct word_s *w = word_expand(word);
+
+    if(!w)
+    {
+        return NULL;
+    }
+    
+    char *res = wordlist_to_str(w);
+    free_all_words(w);
+    
+    return res;
 }
