@@ -2,6 +2,7 @@
 
 struct builtin_s builtins[] =
 {   
+    {"cd"       , builtin_cd },
     { "dump"    , dump       },
 };
 

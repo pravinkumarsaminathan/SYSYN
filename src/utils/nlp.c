@@ -132,6 +132,14 @@ char *extract_command(const char *response)
 
     // DEBUG (VERY IMPORTANT)
     //printf("[DEBUG] CLEAN JSON:\n%s\n", buf);
+    
+    // safety check
+    if (!strstr(buf, "\"safe\": true"))
+    {
+        printf("[BLOCKED] Unsafe command\n");
+        free(buf);
+        return NULL;
+    }
 
     // Step 4: extract command
     char *cmd_key = strstr(buf, "\"command\"");
@@ -159,7 +167,7 @@ char *extract_command(const char *response)
     cmd[len] = '\0';
 
     free(buf);
-    printf("[CMD] : %s\n", cmd);
+    printf("\n[CMD] : %s\n\n", cmd);
     return cmd;
 }
 

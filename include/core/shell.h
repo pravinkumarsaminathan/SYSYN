@@ -14,6 +14,7 @@ void initsh(void);
 
 /* shell builtin utilities */
 int dump(int argc, char **argv);
+int builtin_cd(int argc, char **argv);
 
 /* struct for builtin utilities */
 struct builtin_s
