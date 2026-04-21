@@ -70,4 +70,27 @@ int     match_prefix(char *pattern, char *str, int longest);
 int     match_suffix(char *pattern, char *str, int longest);
 char  **get_filename_matches(char *pattern, glob_t *matches);
 
+
+/* Forward declaration */
+struct source_s;
+
+/* NLP detection */
+int is_nlp_query(struct source_s *src);
+char *extract_query(struct source_s *src);
+
+/* NLP pipeline */
+char *handle_nlp(struct source_s *src);
+char *call_mcp(const char *query);
+char *extract_command(const char *response);
+
+/* Helpers */
+char *escape_json(const char *input);
+char *safe_strdup(const char *s);
+
+/* Response buffer */
+struct memory {
+    char *data;
+    size_t size;
+};
+
 #endif

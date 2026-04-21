@@ -18,4 +18,7 @@ void unget_char(struct source_s *src);
 char peek_char(struct source_s *src);
 void skip_white_spaces(struct source_s *src);
 
+struct source_s *init_source(char *buffer);
+void free_source(struct source_s *src);
+
 #endif

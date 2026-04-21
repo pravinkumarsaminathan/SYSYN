@@ -93,7 +93,25 @@ char *read_cmd(void)
 int parse_and_execute(struct source_s *src)
 {
     skip_white_spaces(src);
+    // NLP interception
+    if (is_nlp_query(src))
+    {
+        char *cmd = handle_nlp(src);
+        if (cmd)
+        {
+            struct source_s *new_src = init_source(cmd);
 
+            if (new_src)
+            {
+                int res = parse_and_execute(new_src);
+                free_source(new_src);
+                free(cmd);
+                return res;
+            }
+        }
+        return 1;
+    }
+    // -----------
     struct token_s *tok = tokenize(src);
 
     if(tok == &eof_token)
@@ -118,7 +136,5 @@ int parse_and_execute(struct source_s *src)
 }
 
 //compile in previous directory using this command:
-   // $ gcc -Iinclude src/**/*.c -o shell
-   // or
-   // $ gcc -Iinclude $(find src -name "*.c") -o shell
+   // $ gcc -Iinclude $(find src -name "*.c") -o shell -lcurl
 // in SYSYN folder

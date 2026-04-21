@@ -1,4 +1,6 @@
 #include <errno.h>
+#include <string.h>
+#include <stdlib.h>
 #include "../../include/core/shell.h"
 #include "../../include/core/source.h"
 
@@ -79,4 +81,30 @@ void skip_white_spaces(struct source_s *src)
     {
         next_char(src);
     }
+}
+
+struct source_s *init_source(char *buffer)
+{
+    if (!buffer) return NULL;
+
+    struct source_s *src = malloc(sizeof(struct source_s));
+    if (!src) return NULL;
+
+    src->buffer = buffer;
+    src->bufsize = strlen(buffer);
+    src->curpos = INIT_SRC_POS;
+
+    return src;
+}
+
+void free_source(struct source_s *src)
+{
+    if (!src) return;
+
+    // IMPORTANT:
+    // We DO NOT free src->buffer here
+    // because sometimes it's owned elsewhere
+    // (like your NLP generated string)
+
+    free(src);
 }
