@@ -90,16 +90,48 @@ char *call_mcp(const char *query)
     return chunk.data;
 }
 
+char *extract_json_string(const char *json, const char *key)
+{
+    char pattern[100];
+    sprintf(pattern, "\"%s\"", key);
+
+    const char *pos = strstr(json, pattern);
+    if (!pos)
+        return NULL;
+
+    pos = strchr(pos, ':');
+    if (!pos)
+        return NULL;
+
+    pos = strchr(pos, '\"');
+    if (!pos)
+        return NULL;
+
+    pos++;
+
+    const char *end = strchr(pos, '\"');
+    if (!end)
+        return NULL;
+
+    size_t len = end - pos;
+
+    char *value = malloc(len + 1);
+    strncpy(value, pos, len);
+    value[len] = '\0';
+
+    return value;
+}
+
 char *extract_command(const char *response)
 {
     if (!response) return NULL;
 
     // 🔹 Step 1: find "text"
-    char *text = strstr(response, "\"text\":");
+    const char *text = strstr(response, "\"text\":");
     if (!text) return NULL;
 
     // 🔹 Step 2: find start of string content
-    char *start = strchr(text + 7, '\"'); // after "text":
+    const char *start = strchr(text + 7, '\"'); // after "text":
     if (!start) return NULL;
 
     start++; // move inside string
@@ -142,32 +174,27 @@ char *extract_command(const char *response)
     }
 
     // Step 4: extract command
-    char *cmd_key = strstr(buf, "\"command\"");
-    if (!cmd_key)
+    char *cmd = extract_json_string(buf, "command");
+    char *exp = extract_json_string(buf, "explanation");
+
+    if (!cmd)
     {
         free(buf);
         return NULL;
     }
 
-    char *cmd_start = strchr(cmd_key, ':');
-    cmd_start = strchr(cmd_start, '\"');
-    cmd_start++;
+    printf("\n");
+    printf("[CMD]         : %s\n", cmd);
 
-    char *cmd_end = strchr(cmd_start, '\"');
-    if (!cmd_end)
+    if (exp)
     {
-        free(buf);
-        return NULL;
+        printf("[EXPLANATION] : %s\n", exp);
+        free(exp);
     }
 
-    size_t len = cmd_end - cmd_start;
-
-    char *cmd = malloc(len + 1);
-    strncpy(cmd, cmd_start, len);
-    cmd[len] = '\0';
+    printf("\n");
 
     free(buf);
-    printf("\n[CMD] : %s\n\n", cmd);
     return cmd;
 }
 

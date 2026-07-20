@@ -82,6 +82,7 @@ char *extract_query(struct source_s *src);
 /* NLP pipeline */
 char *handle_nlp(struct source_s *src);
 char *call_mcp(const char *query);
+char *extract_json_string(const char *json, const char *key);
 char *extract_command(const char *response);
 
 /* Helpers */
