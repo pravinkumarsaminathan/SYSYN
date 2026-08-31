@@ -162,16 +162,7 @@ char *extract_command(const char *response)
 
     buf[j] = '\0';
 
-    // DEBUG (VERY IMPORTANT)
-    //printf("[DEBUG] CLEAN JSON:\n%s\n", buf);
     
-    // safety check
-    if (!strstr(buf, "\"safe\": true"))
-    {
-        printf("[BLOCKED] Unsafe command\n");
-        free(buf);
-        return NULL;
-    }
 
     // Step 4: extract command
     char *cmd = extract_json_string(buf, "command");
@@ -193,6 +184,17 @@ char *extract_command(const char *response)
     }
 
     printf("\n");
+
+    // DEBUG (VERY IMPORTANT)
+    //printf("[DEBUG] CLEAN JSON:\n%s\n", buf);
+    
+    // safety check
+    if (!strstr(buf, "\"safe\": true"))
+    {
+        printf("[BLOCKED] Unsafe command\n");
+        free(buf);
+        return NULL;
+    }
 
     free(buf);
     return cmd;
